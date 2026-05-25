@@ -6,10 +6,7 @@ type SendTextInput = {
 };
 
 export async function sendEvolutionText({ number, text }: SendTextInput) {
-  // 🔥 formato correcto para Evolution (jid)
-  const jid = number.includes("@")
-    ? number
-    : `${number}@s.whatsapp.net`;
+  const cleanNumber = number.split("@")[0].replace(/\D/g, "");
 
   const response = await fetch(
     `${env.EVOLUTION_API_URL}/message/sendText/${env.EVOLUTION_INSTANCE_NAME}`,
@@ -20,10 +17,8 @@ export async function sendEvolutionText({ number, text }: SendTextInput) {
         apikey: env.EVOLUTION_API_KEY,
       },
       body: JSON.stringify({
-        jid,
-        message: {
-          text: text?.toString()?.trim(),
-        },
+        number: cleanNumber,
+        text: text?.toString()?.trim(),
       }),
     }
   );
@@ -31,25 +26,13 @@ export async function sendEvolutionText({ number, text }: SendTextInput) {
   const body = await response.text();
 
   if (!response.ok) {
-    throw new Error(
-      `Evolution sendText fallo con ${response.status}: ${body}`
-    );
+    throw new Error(`Evolution error ${response.status}: ${body}`);
   }
 
-  try {
-    return JSON.parse(body);
-  } catch {
-    return body;
-  }
+  return body;
 }
 
-/* =========================
-   NORMALIZADOR WHATSAPP
-========================= */
-export function normalizeEvolutionNumber(remoteJidOrNumber: string) {
-  if (!remoteJidOrNumber) return "";
-
-  return remoteJidOrNumber
-    .split("@")[0]
-    .replace(/\D/g, "");
+/* normalizador */
+export function normalizeEvolutionNumber(remoteJid: string) {
+  return remoteJid?.split("@")[0].replace(/\D/g, "") ?? "";
 }
