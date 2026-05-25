@@ -19,10 +19,15 @@ const webhookPayloadSchema = z
 export async function evolutionWebhookRoutes(app: FastifyInstance) {
   app.post("/evolution", async (request, reply) => {
     console.log("🔥 HIT WEBHOOK:", request.body);
-    console.log("📩 RAW DATA:", JSON.stringify(payload.data, null, 2));
 
     try {
       const payload = webhookPayloadSchema.parse(request.body);
+
+      // 🔥 DEBUG correcto (ya existe payload acá)
+      console.log(
+        "📩 RAW DATA:",
+        JSON.stringify(payload.data, null, 2)
+      );
 
       request.log.info(
         { event: payload.event, instance: payload.instance },
@@ -40,10 +45,7 @@ export async function evolutionWebhookRoutes(app: FastifyInstance) {
           const base64 = qr.includes(",") ? qr.split(",")[1] : qr;
 
           await fs.mkdir(path.dirname(outputPath), { recursive: true });
-          await fs.writeFile(
-            outputPath,
-            Buffer.from(base64, "base64")
-          );
+          await fs.writeFile(outputPath, Buffer.from(base64, "base64"));
         }
 
         return reply.code(200).send({
@@ -70,6 +72,7 @@ export async function evolutionWebhookRoutes(app: FastifyInstance) {
 
       /* ================= BOT ================= */
       const answerRaw = await buildBotReply(message.text);
+
       const answer =
         (answerRaw ?? "").toString().trim() ||
         "No pude generar respuesta.";
@@ -107,6 +110,8 @@ function normalizeEvolutionEvent(event: string | undefined) {
   return event?.replace(".", "_").toUpperCase() ?? "";
 }
 
+/* ================= EXTRACTOR MENSAJES ================= */
+
 function extractIncomingMessage(data: any) {
   const item = Array.isArray(data) ? data[0] : data;
 
@@ -119,20 +124,21 @@ function extractIncomingMessage(data: any) {
   const fromMe = key?.fromMe === true;
 
   const text =
-  message?.conversation ??
-  message?.extendedTextMessage?.text ??
-  message?.imageMessage?.caption ??
-  message?.videoMessage?.caption ??
-  message?.buttonsResponseMessage?.selectedButtonId ?? // 🔥 BOTONES
-  message?.listResponseMessage?.singleSelectReply?.selectedRowId ?? // 🔥 LISTAS
-  "";
+    message?.conversation ??
+    message?.extendedTextMessage?.text ??
+    message?.imageMessage?.caption ??
+    message?.videoMessage?.caption ??
+    message?.buttonsResponseMessage?.selectedButtonId ?? // botones
+    message?.listResponseMessage?.singleSelectReply?.selectedRowId ?? // listas
+    "";
+
   const finalText = (text ?? "").toString().trim();
 
-  if (!remoteJid || !text) return null;
+  if (!remoteJid || !finalText) return null;
 
   return {
     remoteJid: String(remoteJid),
     fromMe,
-    text: String(text),
+    text: finalText,
   };
 }
