@@ -4,12 +4,17 @@ import { prisma } from "../lib/prisma.js";
 export async function buildBotReply(messageText: string) {
   const text = normalizeText(messageText);
 
+  // 🔥 limpieza fuerte para evitar fallos con emojis / botones
+  const clean = text
+    .replace(/[^a-z0-9]/gi, "")
+    .trim();
+
   /* ================= MENÚ PRINCIPAL ================= */
-  if (!text || ["hola", "menu", "menú", "inicio", "start"].includes(text)) {
+  if (!clean || ["hola", "menu", "menú", "inicio", "start"].includes(clean)) {
     return [
       "👋 Hola! Soy el bot de stock de IZAENERGY",
       "",
-      "📦 Estoy acá para ayudarte a consultar el inventario en segundos.",
+      "📦 Sistema de inventario automático",
       "",
       "🔎 Elegí una opción:",
       "",
@@ -23,29 +28,29 @@ export async function buildBotReply(messageText: string) {
     ].join("\n");
   }
 
-  /* ================= STOCK ================= */
-  if (text === "1" || text.includes("stock")) {
+  /* ================= OPCIÓN 1 - STOCK ================= */
+  if (clean === "1" || clean.includes("stock")) {
     return buildStockReply();
   }
 
-  /* ================= MOVIMIENTOS ================= */
-  if (text === "2" || text.includes("reporte") || text.includes("resumen")) {
+  /* ================= OPCIÓN 2 - MOVIMIENTOS ================= */
+  if (clean === "2" || clean.includes("reporte") || clean.includes("movimientos")) {
     return buildSheetSummaryReply();
   }
 
-  /* ================= AYUDA ================= */
-  if (text === "3" || text.includes("ayuda")) {
+  /* ================= OPCIÓN 3 - AYUDA ================= */
+  if (clean === "3" || clean.includes("ayuda")) {
     return [
-      "ℹ️ *Centro de ayuda*",
+      "ℹ️ *Centro de ayuda IZAENERGY*",
       "",
-      "Puedo ayudarte con:",
-      "📦 stock actual",
-      "📊 movimientos de materiales",
+      "📦 1 → Ver stock",
+      "📊 2 → Movimientos por evento",
+      "ℹ️ 3 → Ayuda",
       "",
       "🔜 Próximamente:",
-      "• pedidos automáticos",
-      "• reportes en PDF",
-      "• integración con logística",
+      "• alertas automáticas",
+      "• reportes PDF",
+      "• integración logística completa",
       "",
       "— IZAENERGY Bot 🤖"
     ].join("\n");
@@ -66,32 +71,28 @@ async function buildStockReply() {
   const organization = await getDefaultOrganization();
 
   if (!organization) {
-    return "⚠️ No hay empresa configurada. Ejecutá el importador de IZAENERGY.";
+    return "⚠️ No hay empresa configurada.";
   }
 
   const products = await prisma.product.findMany({
     where: { organizationId: organization.id, isActive: true },
     include: {
-      stockItems: {
-        select: { status: true },
-      },
+      stockItems: { select: { status: true } },
     },
     orderBy: { sku: "asc" },
     take: 12,
   });
 
-  const lines = products.map((product) => {
-    const total = product.stockItems.length;
-    const available = product.stockItems.filter((i) => i.status === "AVAILABLE").length;
-    const outbound = product.stockItems.filter((i) => i.status === "OUTBOUND").length;
-
-    return `📦 ${product.sku} → Total: ${total} | Depósito: ${available} | Afuera: ${outbound}`;
-  });
-
   return [
     "📊 *Stock resumido*",
     "",
-    ...lines,
+    ...products.map((p) => {
+      const total = p.stockItems.length;
+      const available = p.stockItems.filter(i => i.status === "AVAILABLE").length;
+      const outbound = p.stockItems.filter(i => i.status === "OUTBOUND").length;
+
+      return `📦 ${p.sku} → Total: ${total} | Depósito: ${available} | Afuera: ${outbound}`;
+    }),
     "",
     "— IZAENERGY Bot 🤖"
   ].join("\n");
@@ -102,57 +103,43 @@ async function buildSheetSummaryReply() {
   const organization = await getDefaultOrganization();
 
   if (!organization) {
-    return "⚠️ No hay empresa configurada. Ejecutá el importador de IZAENERGY.";
+    return "⚠️ No hay empresa configurada.";
   }
 
   const movements = await prisma.sheetMovement.findMany({
     where: { organizationId: organization.id },
-    select: {
-      direction: true,
-      eventName: true,
-      validation: true,
-      stockItemId: true,
-    },
   });
 
   if (movements.length === 0) {
-    return "📭 No hay movimientos registrados aún.";
+    return "📭 No hay movimientos registrados.";
   }
 
-  const byEvent = new Map<
-    string,
-    { outbound: number; returned: number; invalid: number }
-  >();
+  const byEvent = new Map<string, any>();
 
-  for (const movement of movements) {
-    const eventName = movement.eventName ?? "SIN EVENTO";
-    const summary = byEvent.get(eventName) ?? {
+  for (const m of movements) {
+    const event = m.eventName ?? "SIN EVENTO";
+
+    const current = byEvent.get(event) ?? {
       outbound: 0,
       returned: 0,
       invalid: 0,
     };
 
-    if (movement.direction === "OUTBOUND") summary.outbound += 1;
-    if (movement.direction === "RETURN") summary.returned += 1;
-    if (!movement.stockItemId || movement.validation === "NO ENCONTRADO") {
-      summary.invalid += 1;
-    }
+    if (m.direction === "OUTBOUND") current.outbound++;
+    if (m.direction === "RETURN") current.returned++;
+    if (!m.stockItemId || m.validation === "NO ENCONTRADO") current.invalid++;
 
-    byEvent.set(eventName, summary);
+    byEvent.set(event, current);
   }
 
-  const lines = [...byEvent.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([eventName, summary]) => {
-      const missing = Math.max(0, summary.outbound - summary.returned);
-
-      return `📍 ${eventName} → Salidas: ${summary.outbound} | Devoluciones: ${summary.returned} | Faltan: ${missing} | Inválidos: ${summary.invalid}`;
-    });
-
   return [
-    "📊 *Resumen de movimientos*",
+    "📊 *Movimientos por evento*",
     "",
-    ...lines,
+    ...[...byEvent.entries()].map(([event, s]) => {
+      const missing = Math.max(0, s.outbound - s.returned);
+
+      return `📍 ${event} → Salidas: ${s.outbound} | Devoluciones: ${s.returned} | Faltan: ${missing} | Inválidos: ${s.invalid}`;
+    }),
     "",
     "— IZAENERGY Bot 🤖"
   ].join("\n");
@@ -166,7 +153,7 @@ async function getDefaultOrganization() {
 }
 
 function normalizeText(text: string) {
-  return text
+  return (text ?? "")
     .trim()
     .toLowerCase()
     .normalize("NFD")
