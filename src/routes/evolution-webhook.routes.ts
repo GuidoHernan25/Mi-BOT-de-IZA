@@ -18,8 +18,8 @@ const webhookPayloadSchema = z
 
 export async function evolutionWebhookRoutes(app: FastifyInstance) {
   app.post("/evolution", async (request, reply) => {
-    // 🔥 DEBUG: ver si Evolution está pegándole al webhook
     console.log("🔥 HIT WEBHOOK:", request.body);
+    console.log("📩 RAW DATA:", JSON.stringify(payload.data, null, 2));
 
     try {
       const payload = webhookPayloadSchema.parse(request.body);
@@ -31,7 +31,7 @@ export async function evolutionWebhookRoutes(app: FastifyInstance) {
 
       const event = normalizeEvolutionEvent(payload.event);
 
-      // 📸 QR update
+      /* ================= QR ================= */
       if (event === "QRCODE_UPDATED") {
         const qr = extractQrBase64(payload.data);
 
@@ -46,27 +46,35 @@ export async function evolutionWebhookRoutes(app: FastifyInstance) {
           );
         }
 
-        return reply
-          .code(200)
-          .send({ ok: true, qrSaved: Boolean(qr) });
+        return reply.code(200).send({
+          ok: true,
+          qrSaved: Boolean(qr),
+        });
       }
 
-      // 🚫 ignorar otros eventos
+      /* ================= IGNORAR EVENTOS ================= */
       if (event !== "MESSAGES_UPSERT") {
         return reply.code(200).send({ ok: true, ignored: true });
       }
 
-      // 💬 extraer mensaje
+      /* ================= MENSAJE ================= */
       const message = extractIncomingMessage(payload.data);
 
-      if (!message || message.fromMe) {
+      if (!message) {
         return reply.code(200).send({ ok: true, ignored: true });
       }
 
-      // 🤖 generar respuesta del bot
-      const answer = await buildBotReply(message.text);
+      if (message.fromMe) {
+        return reply.code(200).send({ ok: true, ignored: true });
+      }
 
-      // 📤 enviar mensaje por Evolution
+      /* ================= BOT ================= */
+      const answerRaw = await buildBotReply(message.text);
+      const answer =
+        (answerRaw ?? "").toString().trim() ||
+        "No pude generar respuesta.";
+
+      /* ================= SEND ================= */
       await sendEvolutionText({
         number: normalizeEvolutionNumber(message.remoteJid),
         text: answer,
@@ -84,6 +92,7 @@ export async function evolutionWebhookRoutes(app: FastifyInstance) {
 
 function extractQrBase64(data: any) {
   const item = Array.isArray(data) ? data[0] : data;
+
   return (
     item?.qrcode?.base64 ??
     item?.base64 ??
@@ -103,16 +112,21 @@ function extractIncomingMessage(data: any) {
 
   const key = item?.key ?? item?.message?.key;
   const message = item?.message ?? item?.data?.message;
-  const remoteJid = key?.remoteJid ?? item?.remoteJid;
-  const fromMe = Boolean(key?.fromMe);
+
+  const remoteJid =
+    key?.remoteJid ?? item?.remoteJid ?? null;
+
+  const fromMe = key?.fromMe === true;
 
   const text =
-    message?.conversation ??
-    message?.extendedTextMessage?.text ??
-    message?.imageMessage?.caption ??
-    message?.videoMessage?.caption ??
-    item?.text ??
-    "";
+  message?.conversation ??
+  message?.extendedTextMessage?.text ??
+  message?.imageMessage?.caption ??
+  message?.videoMessage?.caption ??
+  message?.buttonsResponseMessage?.selectedButtonId ?? // 🔥 BOTONES
+  message?.listResponseMessage?.singleSelectReply?.selectedRowId ?? // 🔥 LISTAS
+  "";
+  const finalText = (text ?? "").toString().trim();
 
   if (!remoteJid || !text) return null;
 
