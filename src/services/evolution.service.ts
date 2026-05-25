@@ -6,8 +6,8 @@ type SendTextInput = {
 };
 
 export async function sendEvolutionText({ number, text }: SendTextInput) {
-  // 🔥 normalizamos número limpio
-  const cleanNumber = number.includes("@")
+  // 🔥 formato correcto para Evolution (jid)
+  const jid = number.includes("@")
     ? number
     : `${number}@s.whatsapp.net`;
 
@@ -20,11 +20,10 @@ export async function sendEvolutionText({ number, text }: SendTextInput) {
         apikey: env.EVOLUTION_API_KEY,
       },
       body: JSON.stringify({
-        number: cleanNumber,
-        text: text?.toString()?.trim(),
-        delay: 400,
-        presence: "composing",
-        linkPreview: false,
+        jid,
+        message: {
+          text: text?.toString()?.trim(),
+        },
       }),
     }
   );
