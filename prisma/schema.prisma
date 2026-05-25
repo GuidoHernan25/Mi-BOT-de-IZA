@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  WAREHOUSE
+  REQUESTER
+}
+
+enum StockItemStatus {
+  AVAILABLE
+  RESERVED
+  OUTBOUND
+  RETURNED
+  MAINTENANCE
+  LOST
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PREPARING
+  DISPATCHED
+  RETURNED
+  CLOSED
+  CANCELLED
+}
+
+enum ScanDirection {
+  OUTBOUND
+  RETURN
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  users     User[]
+  locations Location[]
+  categories Category[]
+  products  Product[]
+  stockItems StockItem[]
+  orders    Order[]
+  sheetMovements SheetMovement[]
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  phone          String?
+  role           UserRole     @default(REQUESTER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, phone])
+}
+
+model Location {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  code           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  stockItems     StockItem[]
+
+  @@unique([organizationId, code])
+}
+
+model Category {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  code           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  products       Product[]
+
+  @@unique([organizationId, code])
+}
+
+model Product {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categoryId     String
+  category       Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  sku            String
+  name           String
+  unit           String       @default("unidad")
+  isSerialized   Boolean      @default(true)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  stockItems     StockItem[]
+  orderItems     OrderItem[]
+
+  @@unique([organizationId, sku])
+}
+
+model StockItem {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  locationId     String?
+  location       Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  barcode        String
+  status         StockItemStatus @default(AVAILABLE)
+  reservedForOrderId String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  scans          Scan[]
+  sheetMovements SheetMovement[]
+
+  @@unique([organizationId, barcode])
+}
+
+model SheetMovement {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stockItemId    String?
+  stockItem      StockItem?    @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  direction      ScanDirection
+  occurredAt     DateTime?
+  eventName      String?
+  barcode        String
+  detectedType   String?
+  validation     String?
+  sourceSheet    String
+  sourceRow      Int
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, sourceSheet, sourceRow])
+  @@index([organizationId, barcode])
+  @@index([organizationId, eventName])
+}
+
+model Order {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String
+  eventName      String
+  eventDate      DateTime?
+  requesterName  String
+  requesterPhone String?
+  status         OrderStatus  @default(CONFIRMED)
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  items          OrderItem[]
+  scans          Scan[]
+
+  @@unique([organizationId, code])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  scannedQuantity Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderId, productId])
+}
+
+model Scan {
+  id          String        @id @default(cuid())
+  orderId     String
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stockItemId String
+  stockItem   StockItem     @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  direction   ScanDirection
+  scannedBy   String?
+  createdAt   DateTime      @default(now())
+
+  @@unique([orderId, stockItemId, direction])
+}
